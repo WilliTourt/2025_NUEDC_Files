@@ -1,0 +1,284 @@
+#include "mpu6050_lite.h"
+#include <math.h>
+#include <stdint.h>
+
+void MPU6050_Init(MPU6050_t* mpu, I2C_Regs* I2C_PORT) {
+    mpu->I2C_PORT_ = I2C_PORT;
+    mpu->accel_cfg_ = 0;
+    mpu->gyro_cfg_ = 0;
+    mpu->gyroX_offset_ = 0;
+    mpu->gyroY_offset_ = 0;
+    mpu->gyroZ_offset_ = 0;
+    mpu->yaw_ = 0;
+    mpu->pitch_ = 0;
+    mpu->roll_ = 0;
+}
+
+void MPU6050_Begin(MPU6050_t* mpu, uint8_t samplerate_div, uint8_t gyro_config, uint8_t accel_config, bool useint) {
+    mpu->accel_cfg_ = accel_config;
+    mpu->gyro_cfg_ = gyro_config;
+
+    uint8_t data_buf[2];
+
+    // PWR_MGMT_1
+    data_buf[0] = MPU6050_PWR_MGMT_1;
+    data_buf[1] = 0x01;
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, data_buf, 2);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+    // PWR_MGMT_2
+    data_buf[0] = MPU6050_PWR_MGMT_2;
+    data_buf[1] = 0x00;
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, data_buf, 2);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+    // SMPLRT_DIV
+    data_buf[0] = MPU6050_SMPLRT_DIV;
+    data_buf[1] = samplerate_div;
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, data_buf, 2);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+    // CONFIG
+    data_buf[0] = MPU6050_CONFIG;
+    data_buf[1] = 0x04;
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, data_buf, 2);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+    // GYRO_CONFIG
+    data_buf[0] = MPU6050_GYRO_CONFIG;
+    data_buf[1] = gyro_config << 3;
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, data_buf, 2);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+    // ACCEL_CONFIG
+    data_buf[0] = MPU6050_ACCEL_CONFIG;
+    data_buf[1] = accel_config << 3;
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, data_buf, 2);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+    if (useint) {
+        data_buf[0] = MPU6050_INT_PIN_CFG;
+        data_buf[1] = 0x02;
+        DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, data_buf, 2);
+        while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+        DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
+        while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+        while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+        DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+        data_buf[0] = MPU6050_INT_ENABLE;
+        data_buf[1] = 0x01;
+        DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, data_buf, 2);
+        while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+        DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 2);
+        while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+        while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+        DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+        MPU6050_ClrInt(mpu);
+    }
+}
+
+void MPU6050_ClrInt(MPU6050_t* mpu) {
+    uint8_t reg = MPU6050_INT_STATUS;
+    uint8_t dummy;
+    
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, &reg, 1);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 1);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_RX, 1);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    dummy = DL_I2C_receiveControllerData(mpu->I2C_PORT_);
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+}
+
+MPU6050_Raw_t MPU6050_GetRawData(MPU6050_t* mpu) {
+    MPU6050_Raw_t data;
+    uint8_t reg = MPU6050_ACCEL_XOUT_H;
+    uint8_t buf[14];
+    
+    // 数据读取代码保持不变
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, &reg, 1);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 1);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_RX, 14);
+    for (int i = 0; i < 14; i++) {
+        buf[i] = DL_I2C_receiveControllerData(mpu->I2C_PORT_);
+    }
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+
+    data.AccelX = (buf[0] << 8) | buf[1];
+    data.AccelY = (buf[2] << 8) | buf[3];
+    data.AccelZ = (buf[4] << 8) | buf[5];
+    data.GyroX  = (buf[8] << 8) | buf[9];
+    data.GyroY  = (buf[10] << 8) | buf[11];
+    data.GyroZ  = (buf[12] << 8) | buf[13];
+
+    return data;
+}
+
+void MPU6050_RawConv(MPU6050_t* mpu, const MPU6050_Raw_t* raw, float* data) {
+    float accel_sensitivity;
+    switch (mpu->accel_cfg_) {
+        case 0: accel_sensitivity = 16384.0f; break; // ±2g
+        case 1: accel_sensitivity = 8192.0f; break;  // ±4g
+        case 2: accel_sensitivity = 4096.0f; break;  // ±8g
+        case 3: accel_sensitivity = 2048.0f; break;  // ±16g
+        default: accel_sensitivity = 16384.0f;
+    }
+
+    float gyro_sensitivity;
+    switch (mpu->gyro_cfg_) {
+        case 0: gyro_sensitivity = 131.0f; break;  // ±250°/s
+        case 1: gyro_sensitivity = 65.5f; break;   // ±500°/s
+        case 2: gyro_sensitivity = 32.8f; break;   // ±1000°/s
+        case 3: gyro_sensitivity = 16.4f; break;   // ±2000°/s
+        default: gyro_sensitivity = 131.0f;
+    }
+
+    data[0] = raw->AccelX / accel_sensitivity;
+    data[1] = raw->AccelY / accel_sensitivity;
+    data[2] = raw->AccelZ / accel_sensitivity;
+
+    data[3] = (raw->GyroX - mpu->gyroX_offset_) / gyro_sensitivity;
+    data[4] = (raw->GyroY - mpu->gyroY_offset_) / gyro_sensitivity;
+    data[5] = (raw->GyroZ - mpu->gyroZ_offset_) / gyro_sensitivity;
+}
+
+int16_t MPU6050_GetTemp(MPU6050_t* mpu) {
+    uint8_t reg = MPU6050_TEMP_OUT_H;
+    uint8_t temp_buf[2];
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, &reg, 1);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 1);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_RX, 2);
+    for (int i = 0; i < 2; i++) {
+        temp_buf[i] = DL_I2C_receiveControllerData(mpu->I2C_PORT_);
+    }
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+    int16_t temp = (temp_buf[0] << 8) | temp_buf[1];
+    return temp;
+}
+
+uint8_t MPU6050_GetID(MPU6050_t* mpu) {
+    uint8_t reg = MPU6050_WHO_AM_I;
+    uint8_t id;
+    DL_I2C_fillControllerTXFIFO(mpu->I2C_PORT_, &reg, 1);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_TX, 1);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    DL_I2C_startControllerTransfer(mpu->I2C_PORT_, MPU6050_ADDR, DL_I2C_CONTROLLER_DIRECTION_RX, 1);
+    while (DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS);
+    while (!(DL_I2C_getControllerStatus(mpu->I2C_PORT_) & DL_I2C_CONTROLLER_STATUS_IDLE));
+    id = DL_I2C_receiveControllerData(mpu->I2C_PORT_);
+    DL_I2C_flushControllerTXFIFO(mpu->I2C_PORT_);
+    return id;
+}
+
+void MPU6050_Calibrate(MPU6050_t* mpu, uint16_t samples) {
+    MPU6050_Raw_t data;
+    mpu->gyroX_offset_ = mpu->gyroY_offset_ = mpu->gyroZ_offset_ = 0;
+    for (uint16_t i = 0; i < samples; i++) {
+        data = MPU6050_GetRawData(mpu);
+        mpu->gyroX_offset_ += data.GyroX;
+        mpu->gyroY_offset_ += data.GyroY;
+        mpu->gyroZ_offset_ += data.GyroZ;
+    }
+    mpu->gyroX_offset_ /= samples;
+    mpu->gyroY_offset_ /= samples;
+    mpu->gyroZ_offset_ /= samples;
+}
+
+void MPU6050_UpdateEuler(MPU6050_t* mpu) {
+    float data_conv[6];
+    MPU6050_Raw_t data = MPU6050_GetRawData(mpu);
+    MPU6050_RawConv(mpu, &data, data_conv);
+
+    float accelX = data_conv[0];
+    float accelY = data_conv[1];
+    float accelZ = data_conv[2];
+
+    float gyroX = data_conv[3];
+    float gyroY = data_conv[4];
+    float gyroZ = data_conv[5];
+
+    float pitch_acc = atan2f(accelY, sqrtf(accelX * accelX + accelZ * accelZ));
+    float roll_acc  = atan2f(accelX, sqrtf(accelY * accelY + accelZ * accelZ));
+    pitch_acc *= 180.0f / 3.1415926536f;
+    roll_acc  *= 180.0f / 3.1415926536f;
+
+    mpu->yaw_ += gyroZ * YAW_COMPENSATION_FACTOR;
+
+    static uint8_t is_first_run = 1;
+    if (is_first_run) {
+        mpu->pitch_ = pitch_acc;
+        mpu->roll_ = roll_acc;
+        is_first_run = 0;
+    } else {
+        mpu->pitch_ += gyroY * dt;
+        mpu->roll_  += gyroX * dt;
+    }
+
+    float accelMagnitude = sqrtf(
+        data.AccelX * data.AccelX +
+        data.AccelY * data.AccelY +
+        data.AccelZ * data.AccelZ
+    );
+    if (fabs(accelMagnitude - 1.0f) < 0.1f) {
+        // 加速度计数据有效时进行互补滤波
+        float alpha = 0.96f;  // 互补滤波系数
+        mpu->pitch_ = alpha * mpu->pitch_ + (1 - alpha) * pitch_acc;
+        mpu->roll_  = alpha * mpu->roll_  + (1 - alpha) * roll_acc;
+    }
+}
+
+void MPU6050_UpdateYaw(MPU6050_t* mpu) {
+    float gyro_sensitivity;
+    switch (mpu->gyro_cfg_) {
+        case 0: gyro_sensitivity = 131.0f; break;  // ±250°/s
+        case 1: gyro_sensitivity = 65.5f; break;   // ±500°/s
+        case 2: gyro_sensitivity = 32.8f; break;   // ±1000°/s
+        case 3: gyro_sensitivity = 16.4f; break;   // ±2000°/s
+        default: gyro_sensitivity = 131.0f;
+    }
+    MPU6050_Raw_t data = MPU6050_GetRawData(mpu);
+    float gyroZ = (data.GyroZ - mpu->gyroZ_offset_) / gyro_sensitivity;
+    mpu->yaw_ += gyroZ * YAW_COMPENSATION_FACTOR;
+}
+
+float MPU6050_GetPitch(MPU6050_t* mpu) { return mpu->pitch_; }
+float MPU6050_GetRoll(MPU6050_t* mpu) { return mpu->roll_; }
+float MPU6050_GetYaw(MPU6050_t* mpu) { return mpu->yaw_; }
