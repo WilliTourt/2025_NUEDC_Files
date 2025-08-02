@@ -1,0 +1,366 @@
+#include "ti_msp_dl_config.h"
+#include "delay.h"
+#include "oled.h"
+#include "motor.h"
+#include "encoder.h"
+#include "jy901s.h"
+#include "pid.h"
+
+float yaw = 0.0;
+char buf[64];
+
+// OLED oled(64, I2C_0_INST);
+// JY901S jy(UART1_JY901S_INST_INT_IRQN, UART1_JY901S_INST);
+
+Encoder enc_fr(GPIOA_INT_IRQn, TIMER_ENC_INST_INT_IRQN);
+Encoder enc_br(GPIOA_INT_IRQn, TIMER_ENC_INST_INT_IRQN);
+Encoder enc_fl(GPIOA_INT_IRQn, TIMER_ENC_INST_INT_IRQN);
+Encoder enc_bl(GPIOA_INT_IRQn, TIMER_ENC_INST_INT_IRQN);
+
+Motor motor_fr(GPIO_MOTOR_DIR_PORT, GPIO_MOTOR_DIR_FR_IN1_PIN, 
+                GPIO_MOTOR_DIR_FR_IN2_PIN, TIMA0_PWM_INST, DL_TIMER_CC_0_INDEX);
+Motor motor_br(GPIO_MOTOR_DIR_PORT, GPIO_MOTOR_DIR_BR_IN1_PIN, 
+                GPIO_MOTOR_DIR_BR_IN2_PIN, TIMA0_PWM_INST, DL_TIMER_CC_1_INDEX);
+Motor motor_fl(GPIO_MOTOR_DIR_PORT, GPIO_MOTOR_DIR_FL_IN1_PIN, 
+                GPIO_MOTOR_DIR_FL_IN2_PIN, TIMA0_PWM_INST, DL_TIMER_CC_2_INDEX);
+Motor motor_bl(GPIO_MOTOR_DIR_PORT, GPIO_MOTOR_DIR_BL_IN1_PIN, 
+                GPIO_MOTOR_DIR_BL_IN2_PIN, TIMA0_PWM_INST, DL_TIMER_CC_3_INDEX);
+
+PID pid_spd(0.7, 0.5, 0.0);
+PID pid_angle(0.4, 0.0, 1.0);
+
+float SPD_Get() {
+    return ((enc_bl.getSpeed() + enc_fl.getSpeed() + enc_br.getSpeed() + enc_fr.getSpeed()) / 4.0);
+}
+
+float DIST_Get() {
+    return ((enc_bl.getDistance() + enc_fl.getDistance() + enc_br.getDistance() + enc_fr.getDistance()) / 4.0);
+}
+
+extern "C" {
+
+//串口发送单个字符
+void uart0_send_char(char ch) {
+    //当串口0忙的时候等待，不忙的时候再发送传进来的字符
+    while( DL_UART_isBusy(UART0_DEBUG_INST) == true );
+    //发送单个字符
+    DL_UART_Main_transmitData(UART0_DEBUG_INST, ch);
+}
+//串口发送字符串
+void uart0_send_string(char* str) {
+    //当前字符串地址不在结尾 并且 字符串首地址不为空
+    while(*str!=0&&str!=0) {
+        //发送字符串首地址中的字符，并且在发送完成之后首地址自增
+        uart0_send_char(*str++);
+    }
+}
+
+}
+
+int main() {
+    
+    SYSCFG_DL_init();
+    delay(10);
+
+    // oled.begin();
+    // oled.printText(0, 0, "Start...", 16);
+
+    motor_fl.begin();
+    motor_bl.begin();
+    motor_fr.begin();
+    motor_br.begin();
+
+    enc_fl.begin();
+    enc_bl.begin();
+    enc_fr.begin();
+    enc_br.begin();
+
+    pid_spd.setTarget(10.0);
+    // pid_angle.setTarget(0.0);
+    // jy.begin();
+
+    // oled.printText(0, 0, "Init OK!", 16);
+    // oled.printText(0, 2, "SPD:", 8);
+    // oled.printText(0, 3, "PID:", 8);
+
+    while (1) {
+
+        // if (jy.decode()) {
+        //     yaw = jy.getYaw();
+        // }
+
+        static float pid_spd_output = 0.0;
+        // static float pid_ang_output = 0.0;
+        // static float left_output, right_output;
+        pid_spd_output = pid_spd.calc(SPD_Get(), 100.0, -100.0, PID::INTEGRAL_LIMIT);
+        pid_ang_output = pid_spd.calc(yaw, 30.0, -30.0, PID::INTEGRAL_LIMIT);
+
+		// left_output = pid_spd_output - pid_ang_output;
+		// right_output = pid_spd_output + pid_ang_output;
+
+        motor_fl.setDuty(pid_spd_output);
+        motor_bl.setDuty(pid_spd_output);
+        motor_fr.setDuty(pid_spd_output);
+        motor_br.setDuty(pid_spd_output);
+        
+        // oled.printVar(30, 2, enc_bl.getCount(), "float", 5, true);
+        // oled.printVar(30, 3, pid_spd_output, "float", 6, true);
+
+    }
+}
+
+
+
+extern "C" {
+
+// void UART1_JY901S_INST_IRQHandler() {
+//     switch ( DL_UART_getPendingInterrupt(UART1_JY901S_INST) ) {
+//         case DL_UART_IIDX_RX: {
+//             uint8_t rxByte = DL_UART_Main_receiveData(UART1_JY901S_INST);
+
+//             // 查找帧头 0x55 0x53
+//             if (jy.jy901s_rx_index == 0) {
+//                 if (rxByte == JY901S_FRAME_HEAD1) {
+//                     jy.jy901s_rx_data[jy.jy901s_rx_index++] = rxByte;
+//                 }
+//             } else if (jy.jy901s_rx_index == 1) {
+//                 if (rxByte == JY901S_FRAME_HEAD2) {
+//                     jy.jy901s_rx_data[jy.jy901s_rx_index++] = rxByte;
+//                 } else {
+//                     jy.jy901s_rx_index = 0;
+//                 }
+//             } else {
+//                 jy.jy901s_rx_data[jy.jy901s_rx_index++] = rxByte;
+//                 if (jy.jy901s_rx_index >= JY901S_FRAME_LEN) {
+//                     jy.jy901s_frame_ready = true;
+//                     jy.jy901s_rx_index = 0;
+//                 }
+//             }
+            
+//             break;
+//         }
+
+//         default: break;
+//     }
+
+//     DL_UART_clearInterruptStatus(UART1_JY901S_INST, DL_UART_IIDX_RX);
+// }
+
+
+
+void GROUP1_IRQHandler() {
+    uint32_t gpio_status = DL_GPIO_getEnabledInterruptStatus(GPIO_MOTOR_ENC_PORT, 
+                            GPIO_MOTOR_ENC_FR_A_PIN | GPIO_MOTOR_ENC_FR_B_PIN |
+                            GPIO_MOTOR_ENC_BR_A_PIN | GPIO_MOTOR_ENC_BR_B_PIN |
+                            GPIO_MOTOR_ENC_FL_A_PIN | GPIO_MOTOR_ENC_FL_B_PIN |
+                            GPIO_MOTOR_ENC_BL_A_PIN | GPIO_MOTOR_ENC_BL_B_PIN );
+
+    // Handle enc_fr
+    if ((gpio_status & GPIO_MOTOR_ENC_FR_A_PIN) == GPIO_MOTOR_ENC_FR_A_PIN) {
+        if (!DL_GPIO_readPins(GPIO_MOTOR_ENC_PORT, GPIO_MOTOR_ENC_FR_B_PIN)) {
+            enc_fr.cnt_IRQ--;
+        } else {
+            enc_fr.cnt_IRQ++;
+        }
+    } else if ((gpio_status & GPIO_MOTOR_ENC_FR_B_PIN) == GPIO_MOTOR_ENC_FR_B_PIN) {
+        if (!DL_GPIO_readPins(GPIO_MOTOR_ENC_PORT, GPIO_MOTOR_ENC_FR_A_PIN)) {
+            enc_fr.cnt_IRQ++;
+        } else {
+            enc_fr.cnt_IRQ--;
+        }
+    }
+
+    // Handle enc_br
+    if ((gpio_status & GPIO_MOTOR_ENC_BR_A_PIN) == GPIO_MOTOR_ENC_BR_A_PIN) {
+        if (!DL_GPIO_readPins(GPIO_MOTOR_ENC_PORT, GPIO_MOTOR_ENC_BR_B_PIN)) {
+            enc_br.cnt_IRQ--;
+        } else {
+            enc_br.cnt_IRQ++;
+        }
+    } else if ((gpio_status & GPIO_MOTOR_ENC_BR_B_PIN) == GPIO_MOTOR_ENC_BR_B_PIN) {
+        if (!DL_GPIO_readPins(GPIO_MOTOR_ENC_PORT, GPIO_MOTOR_ENC_BR_A_PIN)) {
+            enc_br.cnt_IRQ++;
+        } else {
+            enc_br.cnt_IRQ--;
+        }
+    }
+
+    // Handle enc_fl
+    if ((gpio_status & GPIO_MOTOR_ENC_FL_A_PIN) == GPIO_MOTOR_ENC_FL_A_PIN) {
+        if (!DL_GPIO_readPins(GPIO_MOTOR_ENC_PORT, GPIO_MOTOR_ENC_FL_B_PIN)) {
+            enc_fl.cnt_IRQ--;
+        } else {
+            enc_fl.cnt_IRQ++;
+        }
+    } else if ((gpio_status & GPIO_MOTOR_ENC_FL_B_PIN) == GPIO_MOTOR_ENC_FL_B_PIN) {
+        if (!DL_GPIO_readPins(GPIO_MOTOR_ENC_PORT, GPIO_MOTOR_ENC_FL_A_PIN)) {
+            enc_fl.cnt_IRQ++;
+        } else {
+            enc_fl.cnt_IRQ--;
+        }
+    }
+
+    // Handle enc_bl
+    if ((gpio_status & GPIO_MOTOR_ENC_BL_A_PIN) == GPIO_MOTOR_ENC_BL_A_PIN) {
+        if (!DL_GPIO_readPins(GPIO_MOTOR_ENC_PORT, GPIO_MOTOR_ENC_BL_B_PIN)) {
+            enc_bl.cnt_IRQ--;
+        } else {
+            enc_bl.cnt_IRQ++;
+        }
+    } else if ((gpio_status & GPIO_MOTOR_ENC_BL_B_PIN) == GPIO_MOTOR_ENC_BL_B_PIN) {
+        if (!DL_GPIO_readPins(GPIO_MOTOR_ENC_PORT, GPIO_MOTOR_ENC_BL_A_PIN)) {
+            enc_bl.cnt_IRQ++;
+        } else {
+            enc_bl.cnt_IRQ--;
+        }
+    }
+
+    DL_GPIO_clearInterruptStatus(GPIO_MOTOR_ENC_PORT, 
+    GPIO_MOTOR_ENC_FR_A_PIN | GPIO_MOTOR_ENC_FR_B_PIN |
+    GPIO_MOTOR_ENC_BR_A_PIN | GPIO_MOTOR_ENC_BR_B_PIN |
+    GPIO_MOTOR_ENC_FL_A_PIN | GPIO_MOTOR_ENC_FL_B_PIN |
+    GPIO_MOTOR_ENC_BL_A_PIN | GPIO_MOTOR_ENC_BL_B_PIN );
+}
+
+void TIMER_ENC_INST_IRQHandler() {
+    if (DL_TimerG_getPendingInterrupt(TIMER_ENC_INST) == DL_TIMER_IIDX_ZERO) {
+        enc_fr.update();
+        enc_br.update();
+        enc_fl.update();
+        enc_bl.update();
+    }
+}
+
+
+void NMI_Handler(void)
+{
+    __BKPT();
+}
+
+void HardFault_Handler(void)
+{
+    __BKPT();
+}
+
+void SVC_Handler(void)
+{
+    __BKPT();
+}
+
+void PendSV_Handler(void)
+{
+    __BKPT();
+}
+
+void SysTick_Handler(void)
+{
+    __BKPT();
+}
+
+void GROUP0_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void TIMG8_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void UART3_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void ADC0_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void ADC1_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void CANFD0_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void DAC0_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void SPI0_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void SPI1_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void UART2_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void UART0_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void TIMG6_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void TIMA0_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void TIMA1_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void TIMG7_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void TIMG12_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void I2C0_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void I2C1_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void AES_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void RTC_IRQHandler(void)
+{
+    __BKPT();
+}
+
+void DMA_IRQHandler(void)
+{
+    __BKPT();
+}
+
+
+} // extern "C"
